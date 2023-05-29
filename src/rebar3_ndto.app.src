@@ -1,0 +1,7 @@
+{application, rebar3_ndto, [
+    {description, "A rebar3 plugin for the automatic generation of ndto modules."},
+    {vsn, "0.0.1"},
+    {registered, []},
+    {applications, [kernel, stdlib]},
+    {env, []}
+]}.
