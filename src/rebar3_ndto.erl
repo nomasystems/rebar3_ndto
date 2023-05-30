@@ -13,12 +13,127 @@
 %% limitations under the License.
 -module(rebar3_ndto).
 
-%%% PLUGIN EXPORTED FUNCTIONS
--export([init/1]).
+%%% INIT/STOP EXPORTS
+-export([
+    init/1
+]).
+
+%%% EXTERNAL EXPORTS
+-export([
+    compile/2,
+    clean/2
+]).
+
+%%% MACROS
+-define(DEFAULT_OUTPUT_DIR, "_gen/dtos").
+-define(DEFAULT_PARSER, ndto_parser_json_schema_draft_04).
 
 %%%-----------------------------------------------------------------------------
-%%% PLUGIN EXPORTED FUNCTIONS
+%%% INIT/STOP EXPORTS
 %%%-----------------------------------------------------------------------------
 -spec init(rebar_state:t()) -> {ok, rebar_state:t()}.
 init(State) ->
-    {ok, State}.
+    {ok, State1} = rebar3_ndto_compile:init(State),
+    {ok, State2} = rebar3_ndto_clean:init(State1),
+    {ok, State2}.
+
+%%%-----------------------------------------------------------------------------
+%%% EXTERNAL EXPORTS
+%%%-----------------------------------------------------------------------------
+-spec compile(rebar_app_info:t(), rebar_state:t()) -> ok.
+compile(AppInfo, State) ->
+    AppDir = rebar_app_info:dir(AppInfo),
+    Conf = rebar_state:get(State, ndto, []),
+    GlobalOutputDir = proplists:get_value(output_dir, Conf, ?DEFAULT_OUTPUT_DIR),
+    GlobalParser = proplists:get_value(parser, Conf, ?DEFAULT_PARSER),
+    Specs = proplists:get_value(specs, Conf, []),
+    lists:foreach(
+        fun
+            ({Spec, SpecOpts}) ->
+                OutputDir = filename:join(
+                    AppDir, proplists:get_value(output_dir, SpecOpts, GlobalOutputDir)
+                ),
+                Parser = proplists:get_value(parser, SpecOpts, GlobalParser),
+                compile(AppDir, OutputDir, Parser, Spec);
+            (Spec) ->
+                OutputDir = filename:join(AppDir, GlobalOutputDir),
+                Parser = GlobalParser,
+                compile(AppDir, OutputDir, Parser, Spec)
+        end,
+        Specs
+    ).
+
+-spec clean(rebar_app_info:t(), rebar_state:t()) -> ok.
+clean(AppInfo, State) ->
+    AppDir = rebar_app_info:dir(AppInfo),
+    Conf = rebar_state:get(State, ndto, []),
+    GlobalOutputDir = proplists:get_value(output_dir, Conf, ?DEFAULT_OUTPUT_DIR),
+    Specs = proplists:get_value(specs, Conf, []),
+    lists:foreach(
+        fun
+            ({_Spec, SpecOpts}) ->
+                case proplists:get_value(output_dir, SpecOpts, undefined) of
+                    undefined ->
+                        ok;
+                    OutputDir ->
+                        clean(filename:join(AppDir, OutputDir))
+                end;
+            (_Spec) ->
+                ok
+        end,
+        Specs
+    ),
+    clean(filename:join(AppDir, GlobalOutputDir)).
+
+%%%-----------------------------------------------------------------------------
+%%% INTERNAL FUNCTIONS
+%%%-----------------------------------------------------------------------------
+compile(AppDir, OutputDir, Parser, RawSpec) ->
+    Spec = filename:join(AppDir, RawSpec),
+    Basename = filename:basename(Spec),
+    Extension = filename:extension(Basename),
+    Namespace = erlang:list_to_atom(string:trim(Basename, trailing, Extension)),
+    case ndto_parser:parse(Parser, Namespace, Spec) of
+        {error, Reason} ->
+            rebar_utils:abort("[rebar3_ndto] Failed parsing ~s spec: ~p\n", [Spec, Reason]);
+        {ok, Schemas} ->
+            case filelib:ensure_path(OutputDir) of
+                {error, Reason} ->
+                    rebar_utils:abort("[rebar3_ndto] Failed creating ~s folder: ~p\n", [
+                        OutputDir, Reason
+                    ]);
+                ok ->
+                    lists:foreach(
+                        fun({Name, Schema}) ->
+                            DTO = ndto:generate(Name, Schema),
+                            OutputFile = filename:join(
+                                OutputDir, erlang:atom_to_list(Name) ++ ".erl"
+                            ),
+                            case ndto:write(DTO, OutputFile) of
+                                {error, Reason} ->
+                                    rebar_utils:abort(
+                                        "[rebar3_ndto] Failed writing ~s DTO: ~p\n", [
+                                            OutputFile, Reason
+                                        ]
+                                    );
+                                ok ->
+                                    ok
+                            end
+                        end,
+                        Schemas
+                    )
+            end
+    end.
+
+clean(OutputDir) ->
+    case file:list_dir(OutputDir) of
+        {error, _Reason} ->
+            ok;
+        {ok, Filenames} ->
+            lists:foreach(
+                fun(File) ->
+                    file:delete(File)
+                end,
+                Filenames
+            )
+    end.
