@@ -1,10 +1,9 @@
-name: rebar3_ndto ci
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 env:
   OTP-VERSION: 25.2.3

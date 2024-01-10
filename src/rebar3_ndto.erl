@@ -26,7 +26,7 @@
 
 %%% MACROS
 -define(DEFAULT_OUTPUT_DIR, "_gen/dtos").
--define(DEFAULT_PARSER, ndto_parser_json_schema_draft_04).
+-define(DEFAULT_PARSER, ndto_parser_json_schema).
 
 %%%-----------------------------------------------------------------------------
 %%% INIT/STOP EXPORTS
@@ -89,13 +89,10 @@ clean(AppInfo, State) ->
 %%% INTERNAL FUNCTIONS
 %%%-----------------------------------------------------------------------------
 compile(AppDir, OutputDir, Parser, RawSpec) ->
-    Spec = filename:join(AppDir, RawSpec),
-    Basename = filename:basename(Spec),
-    Extension = filename:extension(Basename),
-    Namespace = erlang:list_to_atom(string:trim(Basename, trailing, Extension)),
-    case ndto_parser:parse(Parser, Namespace, Spec) of
+    SpecPath = unicode:characters_to_binary(filename:join(AppDir, RawSpec)),
+    case ndto_parser:parse(Parser, SpecPath) of
         {error, Reason} ->
-            rebar_utils:abort("[rebar3_ndto] Failed parsing ~s spec: ~p\n", [Spec, Reason]);
+            rebar_utils:abort("[rebar3_ndto] Failed parsing ~s spec: ~p\n", [SpecPath, Reason]);
         {ok, Schemas} ->
             case filelib:ensure_path(OutputDir) of
                 {error, Reason} ->
@@ -104,10 +101,10 @@ compile(AppDir, OutputDir, Parser, RawSpec) ->
                     ]);
                 ok ->
                     lists:foreach(
-                        fun({Name, Schema}) ->
-                            DTO = ndto:generate(Name, Schema),
+                        fun({SchemaName, Schema}) ->
+                            DTO = ndto:generate(SchemaName, Schema),
                             OutputFile = filename:join(
-                                OutputDir, erlang:atom_to_list(Name) ++ ".erl"
+                                OutputDir, erlang:atom_to_list(SchemaName) ++ ".erl"
                             ),
                             case ndto:write(DTO, OutputFile) of
                                 {error, Reason} ->
