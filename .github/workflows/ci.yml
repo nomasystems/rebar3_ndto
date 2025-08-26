@@ -11,8 +11,8 @@ jobs:
     strategy:
       matrix:
         combo:
-        - otp-version: '25.2'
-          rebar3-version: '3.18.0'
+        - otp-version: '25.3'
+          rebar3-version: '3.23.0'
         - otp-version: '26.2'
           rebar3-version: '3.23.0'
         - otp-version: '27.2'
